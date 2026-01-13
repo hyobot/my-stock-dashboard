@@ -7,13 +7,13 @@ import plotly.express as px
 # [기본 설정] 페이지 타이틀 및 레이아웃
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="Hybrid Barbell Dashboard", layout="wide")
-st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (Safe Mode)")
+st.title("🛡️ 하이브리드 바벨 & 가치 나침반")
 
 # 탭 분리
 tab1, tab2 = st.tabs(["📊 포트폴리오 모니터", "🧭 보수적 가치 나침반"])
 
 # =============================================================================
-# [Tab 1] 포트폴리오 모니터링 (안전한 개별 호출 방식 적용)
+# [Tab 1] 포트폴리오 모니터링 (개별 호출 방식 - 안전 모드)
 # =============================================================================
 with tab1:
     # 1. 자산 목록 정의
@@ -29,14 +29,10 @@ with tab1:
         summary_data = []
         vix_info = None
         
-        # 진행 상황 표시용 (선택 사항)
-        status_text = st.empty()
-
         # (1) 자산 데이터 수집 (하나씩 순차적으로 시도)
         for cat, tickers in assets.items():
             for t in tickers:
                 try:
-                    status_text.text(f"데이터 수집 중: {t}...")
                     # 최근 5일치 데이터 개별 호출
                     ticker_obj = yf.Ticker(t)
                     df = ticker_obj.history(period="5d")
@@ -55,13 +51,8 @@ with tab1:
                             'Change (%)': pct_chg,
                             'Volume': latest['Volume']
                         })
-                    else:
-                        print(f"[Warning] {t}: 데이터 부족")
-                except Exception as e:
-                    print(f"[Error] {t}: {e}")
-                    continue # 에러난 종목은 패스하고 다음 종목 진행
-
-        status_text.empty() # 텍스트 제거
+                except Exception:
+                    continue # 에러난 종목은 패스
 
         # (2) VIX 데이터 수집 (별도 처리)
         try:
@@ -77,8 +68,11 @@ with tab1:
         return pd.DataFrame(summary_data), vix_info
 
     # 데이터 로딩 실행
-    with st.spinner('시장 데이터를 안전하게 불러오는 중...'):
+    try:
         df_summary, vix_data = fetch_safe_data()
+    except Exception as e:
+        st.error(f"데이터 수집 중 오류 발생: {e}")
+        st.stop()
 
     # 3. 화면 구성: Risk Monitor
     st.header("1. Risk Monitor")
@@ -103,11 +97,17 @@ with tab1:
         
         with col_chart:
             # 차트 그리기
-            fig = px.bar(df_summary, x='Ticker', y='Change (%)', color='Category', 
-                         text='Change (%)', title="실시간 자산 변동률 (%)",
-                         color_discrete_map={'Defense (방어)': '#2ecc71', 
-                                             'Core (핵심)': '#3498db', 
-                                             'Satellite (위성)': '#e74c3c'})
+            fig = px.bar(
+                df_summary, 
+                x='Ticker', 
+                y='Change (%)', 
+                color='Category', 
+                text='Change (%)', 
+                title="실시간 자산 변동률 (%)",
+                color_discrete_map={'Defense (방어)': '#2ecc71', 
+                                    'Core (핵심)': '#3498db', 
+                                    'Satellite (위성)': '#e74c3c'}
+            )
             fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
             st.plotly_chart(fig, use_container_width=True)
         
@@ -121,4 +121,61 @@ with tab1:
             display_df['Change (%)'] = display_df['Change (%)'].apply(lambda x: f"{x:+.2f}")
             display_df['Volume'] = display_df['Volume'].apply(lambda x: f"{x:,.0f}")
             
-            st.dataframe(display_df, hide
+            # [수정된 부분] 줄바꿈 문제 방지를 위해 인자를 나누어 작성
+            st.dataframe(
+                display_df, 
+                hide_index=True, 
+                use_container_width=True
+            )
+    else:
+        # 데이터가 하나도 없을 때 에러 메시지 표시
+        st.error("❌ 데이터를 불러오지 못했습니다. 잠시 후 새로고침(F5) 해주세요.")
+
+# =============================================================================
+# [Tab 2] 보수적 가치 나침반 (에러 방지 & 자동 수집)
+# =============================================================================
+with tab2:
+    st.markdown("""
+    > **"숫자로 기다리는 인간이 되어라."**
+    > 기계가 가져온 숫자를 맹신하지 말고, 반드시 **단위와 예외 항목**을 검증하십시오.
+    """)
+    
+    col_input, col_result = st.columns([1, 1.2])
+
+    with col_input:
+        st.subheader("Step 0. 기초 데이터 입력")
+        
+        c_tick, c_btn = st.columns([2, 1])
+        target_ticker = c_tick.text_input("종목 티커 (예: 005930.KS, AAPL)", value="005930.KS")
+        
+        if 'f_data' not in st.session_state:
+            st.session_state.f_data = {
+                'oi_1': 0.0, 'oi_2': 0.0, 'oi_3': 0.0,
+                'debt': 0.0, 'cash': 0.0, 'shares': 0.0,
+                'currency': 'KRW', 'loaded': False
+            }
+
+        # [버튼 로직] 데이터 자동 수집
+        if c_btn.button("📥 데이터 가져오기"):
+            try:
+                with st.spinner(f"{target_ticker} 분석 중..."):
+                    stock = yf.Ticker(target_ticker)
+                    info = stock.info
+                    
+                    # 통화 확인
+                    currency = info.get('currency', 'KRW')
+                    unit_div = 100000000 if currency == 'KRW' else 1000000 
+                    
+                    # 1) 손익계산서
+                    fins = stock.financials
+                    if fins is not None and not fins.empty:
+                        # Operating Income 찾기 (여러 이름 대응)
+                        oi_row = None
+                        for idx in fins.index:
+                            if 'Operating' in str(idx) and ('Income' in str(idx) or 'Profit' in str(idx)):
+                                oi_row = idx
+                                break
+                        
+                        if oi_row:
+                            vals = fins.loc[oi_row].values[:3]
+                            if len(vals) >= 1:
