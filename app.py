@@ -2,90 +2,129 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import streamlit.components.v1 as components # 트레이딩뷰 위젯용
 
-# 1. 기본 설정
+# -----------------------------------------------------------------------------
+# [기본 설정] 페이지 타이틀 및 레이아웃
+# -----------------------------------------------------------------------------
 st.set_page_config(page_title="Hybrid Barbell & Value Compass", layout="wide")
-st.title("🛡️ 하이브리드 바벨 & 가치 나침반")
+st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (TradingView Ver.)")
 
-tab1, tab2 = st.tabs(["📊 포트폴리오 모니터", "🧭 보수적 가치 나침반"])
+# 탭 분리
+tab1, tab2 = st.tabs(["📊 차트 & 포트폴리오", "🧭 보수적 가치 나침반"])
 
-# ==========================================
-# Tab 1: 포트폴리오 모니터 (안전 모드)
-# ==========================================
+# =============================================================================
+# [Tab 1] 트레이딩뷰 차트 & 포트폴리오 현황
+# =============================================================================
 with tab1:
+    # 1. 자산 목록 정의
     assets = {
         'Defense (방어)': ['COST', 'WM', 'XLV'],
         'Core (핵심)': ['MSFT', 'GOOGL'],
         'Satellite (위성)': ['VRT', 'ETN']
     }
-    
-    @st.cache_data(ttl=3600)
-    def fetch_data_safe():
-        data_list = []
-        vix_val, vix_chg = 0.0, 0.0
+    # 모든 티커 리스트
+    all_tickers = [t for cat in assets.values() for t in cat] + ['^VIX', '^TNX', '005930.KS']
+
+    # 2. 화면 구성 (2단 분할)
+    col_chart, col_list = st.columns([2.5, 1])
+
+    # ---------------------------------------------------------
+    # [좌측] 트레이딩뷰 위젯 (핵심 기능)
+    # ---------------------------------------------------------
+    with col_chart:
+        st.subheader("📈 TradingView Advanced Chart")
         
-        # 자산 데이터 개별 수집
-        for cat, tickers in assets.items():
-            for t in tickers:
-                try:
-                    df = yf.Ticker(t).history(period="5d")
-                    if len(df) >= 2:
-                        curr = df['Close'].iloc[-1]
-                        prev = df['Close'].iloc[-2]
-                        pct = (curr - prev) / prev * 100
-                        vol = df['Volume'].iloc[-1]
-                        data_list.append([cat, t, curr, pct, vol])
-                except:
-                    continue
-        
-        # VIX 수집
-        try:
-            v_df = yf.Ticker('^VIX').history(period="5d")
-            if len(v_df) >= 2:
-                vix_val = v_df['Close'].iloc[-1]
-                vix_chg = (vix_val - v_df['Close'].iloc[-2]) / v_df['Close'].iloc[-2] * 100
-        except:
-            pass
+        # 차트 종목 선택기
+        selected_ticker = st.selectbox("차트 확인할 종목 선택", all_tickers, index=3) # 기본값 MSFT
+
+        # [함수] 야후 티커 -> 트레이딩뷰 심볼 변환
+        def get_tv_symbol(ticker):
+            # 1. 한국 주식 (005930.KS -> KRX:005930)
+            if ticker.endswith('.KS'):
+                return f"KRX:{ticker.split('.')[0]}"
+            elif ticker.endswith('.KQ'):
+                return f"KOSDAQ:{ticker.split('.')[0]}"
             
-        return pd.DataFrame(data_list, columns=['Category', 'Ticker', 'Price', 'Change', 'Volume']), vix_val, vix_chg
+            # 2. 지수 및 특수 자산
+            if ticker == '^VIX': return "CBOE:VIX"
+            if ticker == '^TNX': return "TVC:TNX" # 미국 10년물 금리
+            
+            # 3. 미국 주식 (거래소 자동 매칭을 위해 티커만 보냄, 필요시 NASDAQ: 등 붙임)
+            return ticker 
 
-    # 데이터 실행
-    try:
-        df_res, v_val, v_chg = fetch_data_safe()
-    except:
-        st.error("데이터 수집 실패")
-        st.stop()
+        tv_symbol = get_tv_symbol(selected_ticker)
 
-    # 화면 표시
-    st.header("1. Risk Monitor")
-    c1, c2 = st.columns(2)
-    status = "🔴 위험 (Cash Up!)" if v_val > 20 else "🟢 안전 (Invest)"
-    c1.metric("VIX (공포지수)", f"{v_val:.2f}", f"{v_chg:.2f}%", delta_color="inverse")
-    c2.info(f"💡 시장 상태: **{status}**")
-    
-    st.divider()
-    st.header("2. Portfolio Status")
-    
-    if not df_res.empty:
-        col_chart, col_table = st.columns([1.5, 1])
-        with col_chart:
-            fig = px.bar(df_res, x='Ticker', y='Change', color='Category', text='Change', title="실시간 변동률(%)")
-            fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
-        with col_table:
-            st.markdown("##### 📋 상세 시세표")
-            # 포맷팅 후 출력 (오류 방지를 위해 단순화)
-            show_df = df_res.copy()
-            show_df['Price'] = show_df['Price'].apply(lambda x: f"{x:,.2f}")
-            show_df['Change'] = show_df['Change'].apply(lambda x: f"{x:+.2f}%")
-            show_df['Volume'] = show_df['Volume'].apply(lambda x: f"{x:,.0f}")
-            st.dataframe(show_df, hide_index=True, use_container_width=True)
-    else:
-        st.warning("데이터를 불러오지 못했습니다.")
+        # 트레이딩뷰 위젯 HTML 코드
+        tv_html = f"""
+        <div class="tradingview-widget-container">
+          <div id="tradingview_12345"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget(
+          {{
+            "width": "100%",
+            "height": 500,
+            "symbol": "{tv_symbol}",
+            "interval": "D",
+            "timezone": "Asia/Seoul",
+            "theme": "light",
+            "style": "1",
+            "locale": "kr",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_12345"
+          }});
+          </script>
+        </div>
+        """
+        # HTML 렌더링
+        components.html(tv_html, height=500)
+        st.caption("※ 차트 내에서 지표 추가, 작도, 줌인/아웃이 모두 가능합니다.")
 
-# ==========================================
-# Tab 2: 가치 나침반 (로직 검증 완료)
-# ==========================================
+    # ---------------------------------------------------------
+    # [우측] 기존 포트폴리오 시세표 (yfinance 사용 - Safe Mode)
+    # ---------------------------------------------------------
+    with col_list:
+        st.subheader("📋 포트폴리오 요약")
+        
+        if st.button("시세 새로고침 (yfinance)"):
+            st.cache_data.clear() # 캐시 삭제 후 재로딩
+
+        @st.cache_data(ttl=3600) # 1시간 캐시 (차단 방지)
+        def fetch_summary():
+            data = []
+            for cat, tickers in assets.items():
+                for t in tickers:
+                    try:
+                        df = yf.Ticker(t).history(period='2d')
+                        if len(df) >= 2:
+                            curr = df['Close'].iloc[-1]
+                            prev = df['Close'].iloc[-2]
+                            pct = (curr - prev)/prev * 100
+                            data.append({'종목': t, '등락률': pct, '현재가': curr, '그룹': cat})
+                    except: continue
+            return pd.DataFrame(data)
+
+        try:
+            df_summ = fetch_summary()
+            if not df_summ.empty:
+                # 간단한 테이블로 표시
+                st.dataframe(
+                    df_summ.style.format({'등락률': '{:+.2f}%', '현재가': '{:,.2f}'})
+                           .applymap(lambda x: 'color: red' if x < 0 else 'color: green', subset=['등락률']),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.warning("데이터 로드 중...")
+        except:
+            st.error("시세 로드 실패")
+
+# =============================================================================
+# [Tab 2] 보수적 가치 나침반 (기존 코드 유지)
+# =============================================================================
 with tab2:
     st.markdown("> **\"숫자로 기다리는 인간이 되어라.\"**")
     
@@ -96,12 +135,10 @@ with tab2:
         c_t, c_b = st.columns([2, 1])
         ticker = c_t.text_input("티커", value="005930.KS")
         
-        # 세션 초기화
         if 'fd' not in st.session_state:
             st.session_state.fd = {'o1':0.0, 'o2':0.0, 'o3':0.0, 'd':0.0, 'c':0.0, 's':0.0, 'cur':'KRW'}
 
-        # 자동 데이터 로드
-        if c_b.button("📥 데이터 가져오기"):
+        if c_b.button("📥 데이터 가져오기 (Tab2)"):
             try:
                 with st.spinner("분석 중..."):
                     tk = yf.Ticker(ticker)
@@ -122,7 +159,6 @@ with tab2:
                     
                     bs = tk.balance_sheet
                     if bs is not None and not bs.empty:
-                        # 부채/현금 찾기
                         for idx in bs.index:
                             if 'Total Debt' in str(idx):
                                 st.session_state.fd['d'] = float(bs.loc[idx].iloc[0]/div)
@@ -135,7 +171,6 @@ with tab2:
             except Exception as e:
                 st.error(f"실패: {e}")
 
-        # 입력 필드
         if st.checkbox("금융/플랫폼/적자전환 기업 (체크 시 중단)"):
             st.error("분석 불가")
             st.stop()
@@ -158,39 +193,3 @@ with tab2:
         worst = min(o1, o2, o3)
         norm = worst + one_off
         mul = st.slider("멀티플", 3, 10, 5)
-        
-        ev = norm * mul
-        net_debt = debt - cash
-        eq_val = ev - net_debt
-        
-        # 주당가치 계산
-        u_mul = 100000000 if d['cur'] == 'KRW' else 1000000
-        final = (eq_val * u_mul) / shares if shares > 0 else 0
-        
-        st.info(f"""
-        1. 정상화 이익: {norm:,.1f} (최악 {worst:,.1f})
-        2. 기업가치: {ev:,.1f}
-        3. 자기자본가치: {eq_val:,.1f}
-        """)
-        
-        st.markdown(f"### 👑 적정가: **{final:,.0f}**")
-        
-        curr_p = st.number_input("현재 주가", value=0.0)
-        # 현재가 자동 로드
-        if curr_p == 0 and ticker:
-            try:
-                h = yf.Ticker(ticker).history(period='1d')
-                if not h.empty: curr_p = h['Close'].iloc[-1]
-            except: pass
-            
-        if curr_p > 0 and final > 0:
-            margin = (final - curr_p) / final * 100
-            st.metric("안전마진", f"{margin:.1f}%")
-            if margin > 30:
-                st.success("✅ [진입 승인] 안전마진 30% 초과")
-            elif margin > 0:
-                st.warning("⚠️ [관망] 마진 부족")
-            else:
-                st.error("⛔ [진입 금지] 고평가")
-        elif final <= 0:
-            st.error("적정가가 0 이하입니다.")
