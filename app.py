@@ -2,17 +2,18 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import streamlit.components.v1 as components
+import numpy as np
 
 # -----------------------------------------------------------------------------
 # 1. 기본 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="Hybrid Dashboard", layout="wide")
-st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (Final Fix)")
+st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (AI Infra Filter)")
 
-tab1, tab2 = st.tabs(["📊 고급 차트 & 포트폴리오", "🧭 보수적 가치 나침반"])
+tab1, tab2, tab3 = st.tabs(["📊 차트 & 포트폴리오", "🧭 보수적 가치 나침반", "🌸 AI 인프라 재무 필터"])
 
 # =============================================================================
-# Tab 1: 트레이딩뷰 (iframe 방식 - 무조건 출력됨)
+# Tab 1: 트레이딩뷰 & 시세
 # =============================================================================
 with tab1:
     assets = {
@@ -24,7 +25,7 @@ with tab1:
 
     col_chart, col_list = st.columns([3, 1])
 
-    # [좌측] 트레이딩뷰 고급 차트
+    # [좌측] 트레이딩뷰 (iframe)
     with col_chart:
         st.subheader("📈 트레이딩뷰 차트")
         selected_ticker = st.selectbox("종목 선택", all_tickers, index=3)
@@ -37,7 +38,7 @@ with tab1:
             return t 
 
         tv_sym = get_tv_symbol(selected_ticker)
-
+        
         # iframe 호출
         tradingview_url = f"https://s.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol={tv_sym}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=[]&theme=light&style=1&timezone=Asia/Seoul&studies_overrides={{}}&overrides={{}}&enabled_features=[]&disabled_features=[]&locale=kr&utm_source=tradingview-widget&utm_medium=embed&utm_campaign=advanced-chart"
         components.iframe(tradingview_url, height=600, scrolling=False)
@@ -72,9 +73,9 @@ with tab1:
                     use_container_width=True, hide_index=True
                 )
             else:
-                st.info("데이터 로딩 중...")
+                st.info("로딩 중...")
         except:
-            st.error("시세 로드 실패")
+            st.error("API 제한")
 
 # =============================================================================
 # Tab 2: 가치 나침반
@@ -84,7 +85,6 @@ with tab2:
     
     c_input, c_calc = st.columns([1, 1.2])
 
-    # 1. 입력부
     with c_input:
         st.subheader("Step 0. 데이터 입력")
         t_col, b_col = st.columns([2,1])
@@ -121,7 +121,6 @@ with tab2:
                         if c_row: st.session_state.val_data['cash'] = float(bs.loc[c_row].iloc[0]/div)
                     
                     st.session_state.val_data['shares'] = float(info.get('sharesOutstanding', 0))
-                    
                     try:
                         hist = tk.history(period='1d')
                         if not hist.empty:
@@ -130,9 +129,9 @@ with tab2:
                         st.session_state.val_data['curr_p'] = 0.0
 
                     st.session_state.val_data['cur'] = cur
-                    st.success("데이터 로드 완료")
+                    st.success("완료")
             except Exception as e:
-                st.error(f"로드 실패: {e}")
+                st.error(f"실패: {e}")
 
         d = st.session_state.val_data
         unit = "억 원" if d['cur'] == 'KRW' else "백만 달러"
@@ -146,18 +145,14 @@ with tab2:
         cash = st.number_input("현금성자산", value=d['cash'])
         shares = st.number_input("주식수 (주)", value=d['shares'], format="%.0f")
 
-    # 2. 판정부
     with c_calc:
         st.subheader("🏁 가치 판정 결과")
-        
         worst_oi = min(o1, o2, o3)
         norm_oi = worst_oi + one_off
         multiple = st.slider("적용 멀티플 (보수적 5~6)", 3, 10, 5)
-        
         ev = norm_oi * multiple
         net_debt = debt - cash
         eq_val = ev - net_debt
-        
         u_mul = 100000000 if d['cur']=='KRW' else 1000000
         fair_price = (eq_val * u_mul) / shares if shares > 0 else 0
         
@@ -166,33 +161,182 @@ with tab2:
         2. **기업가치 (EV):** {ev:,.0f}
         3. **자기자본 가치:** {eq_val:,.0f}
         """)
-        
         st.divider()
         st.markdown(f"### 👑 보수적 적정가: **{fair_price:,.0f}**")
         
         curr_p_input = st.number_input("현재 주가 입력 (비교용)", value=d['curr_p'])
-        
         if curr_p_input > 0 and fair_price > 0:
             margin = (fair_price - curr_p_input) / fair_price * 100
             st.metric("현재 안전마진", f"{margin:.1f}%")
-            
             if margin > 30:
                 st.success("✅ **[진입 승인]** 안전마진 30% 확보됨")
                 st.balloons()
             elif margin > 0:
-                st.warning("⚠️ **[관망]** 저평가 상태이나 마진(30%) 부족")
+                st.warning("⚠️ **[관망]** 마진 부족")
             else:
-                # [핵심 수정] 하락 필요폭 계산 및 표시
-                over_pct = abs(margin) # 적정가 대비 비싼 비율
-                drop_needed = (curr_p_input - fair_price) / curr_p_input * 100 # 현재가에서 떨어져야 할 비율
-                
+                over_pct = abs(margin)
+                drop_needed = (curr_p_input - fair_price) / curr_p_input * 100
                 st.error(f"""
                 ⛔ **[진입 금지]** 적정가보다 **{over_pct:.1f}%** 비쌉니다.
-                
-                📉 즉, 현재 가격에서 약 **{drop_needed:.1f}% 하락**해야 기준 가격과 동일해집니다.
+                📉 현재가에서 **{drop_needed:.1f}% 하락**해야 진입 가능합니다.
                 """)
-        
         elif fair_price <= 0:
             st.error("⚠️ 적정 주가 0 이하 (계산 불가)")
-        else:
-            st.warning("👈 데이터를 가져오거나 현재 주가를 입력하세요.")
+
+# =============================================================================
+# Tab 3: AI 인프라 재무 필터 (NEW)
+# =============================================================================
+with tab3:
+    st.markdown("""
+    ### 🌸 겨울을 견디고 봄에 보상받을 기업 (AI Infra Filter)
+    > **"남들이 보지 못하는 블라인드 스팟을 숫자로 검증합니다."**
+    """)
+    
+    col_f_in, col_f_res = st.columns([1, 2])
+    
+    with col_f_in:
+        filter_ticker = st.text_input("검증할 티커 (예: VRT, ETN, MSFT)", value="VRT")
+        run_btn = st.button("🔍 재무 건전성 정밀 진단")
+        
+        st.info("""
+        **[진단 항목]**
+        1. 부채 안정성 (Net Debt/EBITDA)
+        2. 이자 감당 능력 (ICR)
+        3. 현금 창출력 (FCF > Capex)
+        4. 파산 저항성 (Altman Z-Score)
+        5. 고객 집중도 (수동)
+        6. 자본 효율성 (ROIC)
+        7. 주주 친화성 (희석 여부)
+        8. 진입 밸류에이션 (PEG)
+        """)
+
+    with col_f_res:
+        if run_btn:
+            try:
+                with st.spinner(f"{filter_ticker} 정밀 분석 중..."):
+                    stock = yf.Ticker(filter_ticker)
+                    
+                    # 데이터 수집 (안전장치 포함)
+                    info = stock.info
+                    bs = stock.balance_sheet
+                    is_stmt = stock.financials
+                    cf = stock.cashflow
+                    
+                    if bs.empty or is_stmt.empty or cf.empty:
+                        st.error("❌ 재무 데이터를 불러올 수 없습니다. (API 제한 또는 데이터 없음)")
+                        st.stop()
+
+                    # --- [1] 부채 안정성 (Net Debt / EBITDA <= 2.5) ---
+                    try:
+                        total_debt = info.get('totalDebt', 0)
+                        cash = info.get('totalCash', 0)
+                        ebitda = info.get('ebitda', 1) # 0 나누기 방지
+                        net_debt = total_debt - cash
+                        ratio_1 = net_debt / ebitda
+                        pass_1 = ratio_1 <= 2.5
+                    except: ratio_1, pass_1 = 999, False
+
+                    # --- [2] 이자 감당 능력 (EBIT / Interest >= 5.0) ---
+                    try:
+                        ebit = is_stmt.loc['EBIT'].iloc[0] if 'EBIT' in is_stmt.index else info.get('ebitda', 0)
+                        # 이자비용은 보통 음수로 표기되므로 절대값 처리
+                        interest = abs(is_stmt.loc['Interest Expense'].iloc[0]) if 'Interest Expense' in is_stmt.index else 1
+                        ratio_2 = ebit / interest if interest != 0 else 0
+                        pass_2 = ratio_2 >= 5.0
+                    except: ratio_2, pass_2 = 0, False
+
+                    # --- [3] 현금 창출력 (FCF > Capex) ---
+                    # FCF = OCF - Capex. 질문: "FCF > Capex"는 (OCF - Capex) > Capex 즉 OCF > 2*Capex 의미
+                    # 여기서는 문자 그대로 FCF(자체현금)가 투자금(Capex)보다 많은지, 즉 잉여현금이 넉넉한지 봅니다.
+                    try:
+                        fcf = info.get('freeCashflow', 0)
+                        # Capex는 Cashflow 표에서 보통 음수
+                        capex = abs(cf.loc['Capital Expenditure'].iloc[0]) if 'Capital Expenditure' in cf.index else 0
+                        pass_3 = fcf > capex
+                        val_3 = f"FCF: {fcf/1e9:.1f}B / Capex: {capex/1e9:.1f}B"
+                    except: pass_3, val_3 = False, "Data N/A"
+
+                    # --- [4] Altman Z-Score (> 3.0) ---
+                    try:
+                        # Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
+                        total_assets = bs.loc['Total Assets'].iloc[0]
+                        total_liab = bs.loc['Total Liabilities Net Minority Interest'].iloc[0]
+                        working_capital = bs.loc['Working Capital'].iloc[0] if 'Working Capital' in bs.index else (bs.loc['Total Assets'].iloc[0] - bs.loc['Total Liabilities Net Minority Interest'].iloc[0]) # 약식
+                        retained_earnings = bs.loc['Retained Earnings'].iloc[0] if 'Retained Earnings' in bs.index else 0
+                        ebit_z = ebit
+                        market_cap = info.get('marketCap', 0)
+                        sales = is_stmt.loc['Total Revenue'].iloc[0]
+
+                        A = working_capital / total_assets
+                        B = retained_earnings / total_assets
+                        C = ebit_z / total_assets
+                        D = market_cap / total_liab
+                        E = sales / total_assets
+
+                        z_score = (1.2*A) + (1.4*B) + (3.3*C) + (0.6*D) + (1.0*E)
+                        pass_4 = z_score > 3.0
+                    except: z_score, pass_4 = 0, False
+
+                    # --- [5] 고객 집중도 (< 20%) ---
+                    # API로 불가 -> 수동 확인
+                    pass_5 = "Manual Check"
+                    
+                    # --- [6] 자본 효율성 (ROIC > WACC) ---
+                    # WACC 자동 계산 어려움 -> ROIC 10% 이상인지로 대체
+                    try:
+                        roic = info.get('returnOnEquity', 0) # ROE로 대체하거나 직접 계산 필요하나 API 한계로 ROE/ROA 참고
+                        # 정밀 ROIC 계산 시도
+                        tax_rate = is_stmt.loc['Tax Provision'].iloc[0] / is_stmt.loc['Pretax Income'].iloc[0] if 'Tax Provision' in is_stmt.index else 0.21
+                        nopat = ebit * (1 - tax_rate)
+                        invested_capital = (total_debt + info.get('marketCap', 0)) - cash # 약식
+                        roic_cal = (nopat / invested_capital) * 100 if invested_capital else 0
+                        pass_6 = roic_cal > 10.0 # WACC 대용 10%
+                    except: roic_cal, pass_6 = 0, False
+
+                    # --- [7] 주주 친화성 (희석 없음) ---
+                    try:
+                        # 최근 3년 주식수 변화
+                        shares_now = cf.loc['Issuance Of Stock'].iloc[0] if 'Issuance Of Stock' in cf.index else 0
+                        # 주식 발행량이 크면 희석으로 간주 (단순화)
+                        # 더 정확히는 info['sharesOutstanding'] 과거 데이터가 필요한데 yfinance 무료로는 제한적
+                        # 대안: 주요 재무지표상 주식수 증가율 확인 불가시 -> 최근 유상증자 이슈 여부 수동 체크 권장
+                        pass_7 = "Manual Check" 
+                    except: pass_7 = "Check"
+
+                    # --- [8] 밸류에이션 (PEG < 1.0) ---
+                    try:
+                        peg = info.get('pegRatio', 99)
+                        pass_8 = peg < 1.0
+                    except: peg, pass_8 = 99, False
+
+                    # ---------------- 결과 출력 ----------------
+                    st.subheader(f"📊 {filter_ticker} 진단 결과")
+                    
+                    # 결과 데이터프레임 생성
+                    res_data = [
+                        ["1. 부채 안정성", "Net Debt/EBITDA ≤ 2.5", f"{ratio_1:.2f}배", "✅ 통과" if pass_1 else "❌ 위험"],
+                        ["2. 이자 감당 능력", "EBIT/Interest ≥ 5.0", f"{ratio_2:.1f}배", "✅ 통과" if pass_2 else "❌ 위험"],
+                        ["3. 현금 창출력", "FCF > Capex", val_3, "✅ 통과" if pass_3 else "❌ 부족"],
+                        ["4. 파산 저항성", "Altman Z-Score > 3.0", f"{z_score:.2f}", "✅ 안전" if pass_4 else "❌ 주의"],
+                        ["5. 고객 집중도", "단일 고객 < 20%", "확인 불가", "⚠️ 수동 확인 필요 (10-K)"],
+                        ["6. 자본 효율성", "ROIC > 10% (WACC)", f"{roic_cal:.1f}%", "✅ 우수" if pass_6 else "❌ 저조"],
+                        ["7. 주주 친화성", "희석 이력 없음", "API 한계", "⚠️ 수동 확인 필요"],
+                        ["8. 밸류에이션", "PEG < 1.0", f"{peg}", "✅ 저평가" if pass_8 else "❌ 고평가"]
+                    ]
+                    
+                    res_df = pd.DataFrame(res_data, columns=["필터 항목", "기준", "현재 수치", "판정"])
+                    st.table(res_df)
+                    
+                    # 종합 의견
+                    success_cnt = sum([1 for x in [pass_1, pass_2, pass_3, pass_4, pass_6, pass_8] if x is True])
+                    st.markdown(f"#### 💡 종합 점수: {success_cnt} / 6 (자동 진단 항목)")
+                    
+                    if success_cnt >= 5:
+                        st.success("🏆 **[Top Tier]** 겨울을 견디고 봄을 맞이할 강력한 후보입니다.")
+                    elif success_cnt >= 3:
+                        st.warning("⚖️ **[Middle]** 일부 지표가 기준에 미달합니다. 정밀 분석이 필요합니다.")
+                    else:
+                        st.error("🥶 **[Winter Risk]** 재무적 기초체력이 약합니다. 신중한 접근이 필요합니다.")
+                        
+            except Exception as e:
+                st.error(f"분석 중 오류 발생: {e}")
