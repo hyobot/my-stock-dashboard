@@ -2,18 +2,17 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import streamlit.components.v1 as components
-import numpy as np
 
 # -----------------------------------------------------------------------------
 # 1. 기본 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="Hybrid Dashboard", layout="wide")
-st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (AI Infra Filter)")
+st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (Final Fix)")
 
-tab1, tab2, tab3 = st.tabs(["📊 차트 & 포트폴리오", "🧭 보수적 가치 나침반", "🌸 AI 인프라 재무 필터"])
+tab1, tab2, tab3 = st.tabs(["📊 고급 차트 & 포트폴리오", "🧭 보수적 가치 나침반", "🌸 AI 인프라 재무 필터"])
 
 # =============================================================================
-# Tab 1: 트레이딩뷰 & 시세
+# Tab 1: 트레이딩뷰 고급 차트
 # =============================================================================
 with tab1:
     assets = {
@@ -25,7 +24,6 @@ with tab1:
 
     col_chart, col_list = st.columns([3, 1])
 
-    # [좌측] 트레이딩뷰 (iframe)
     with col_chart:
         st.subheader("📈 트레이딩뷰 차트")
         selected_ticker = st.selectbox("종목 선택", all_tickers, index=3)
@@ -38,12 +36,29 @@ with tab1:
             return t 
 
         tv_sym = get_tv_symbol(selected_ticker)
-        
-        # iframe 호출
-        tradingview_url = f"https://s.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol={tv_sym}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=[]&theme=light&style=1&timezone=Asia/Seoul&studies_overrides={{}}&overrides={{}}&enabled_features=[]&disabled_features=[]&locale=kr&utm_source=tradingview-widget&utm_medium=embed&utm_campaign=advanced-chart"
-        components.iframe(tradingview_url, height=600, scrolling=False)
 
-    # [우측] 시세 리스트
+        # 고급 차트 위젯 (JavaScript)
+        html_code = f"""
+        <div class="tradingview-widget-container" style="height:500px;width:100%">
+          <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+          {{
+          "autosize": true,
+          "symbol": "{tv_sym}",
+          "interval": "D",
+          "timezone": "Asia/Seoul",
+          "theme": "light",
+          "style": "1",
+          "locale": "kr",
+          "enable_publishing": false,
+          "allow_symbol_change": true,
+          "support_host": "https://www.tradingview.com"
+        }}
+          </script>
+        </div>
+        """
+        components.html(html_code, height=510)
+
     with col_list:
         st.subheader("📋 시세 요약")
         if st.button("새로고침"):
@@ -184,12 +199,11 @@ with tab2:
             st.error("⚠️ 적정 주가 0 이하 (계산 불가)")
 
 # =============================================================================
-# Tab 3: AI 인프라 재무 필터 (NEW)
+# Tab 3: AI 인프라 재무 필터 (PEG 로직 강화)
 # =============================================================================
 with tab3:
     st.markdown("""
     ### 🌸 겨울을 견디고 봄에 보상받을 기업 (AI Infra Filter)
-    > **"남들이 보지 못하는 블라인드 스팟을 숫자로 검증합니다."**
     """)
     
     col_f_in, col_f_res = st.columns([1, 2])
@@ -222,7 +236,7 @@ with tab3:
                     is_stmt = stock.financials
                     cf = stock.cashflow
                     
-                    if bs.empty or is_stmt.empty or cf.empty:
+                    if bs.empty or is_stmt.empty:
                         st.error("❌ 재무 데이터를 불러올 수 없습니다. (API 제한 또는 데이터 없음)")
                         st.stop()
 
@@ -239,18 +253,14 @@ with tab3:
                     # --- [2] 이자 감당 능력 (EBIT / Interest >= 5.0) ---
                     try:
                         ebit = is_stmt.loc['EBIT'].iloc[0] if 'EBIT' in is_stmt.index else info.get('ebitda', 0)
-                        # 이자비용은 보통 음수로 표기되므로 절대값 처리
                         interest = abs(is_stmt.loc['Interest Expense'].iloc[0]) if 'Interest Expense' in is_stmt.index else 1
                         ratio_2 = ebit / interest if interest != 0 else 0
                         pass_2 = ratio_2 >= 5.0
                     except: ratio_2, pass_2 = 0, False
 
                     # --- [3] 현금 창출력 (FCF > Capex) ---
-                    # FCF = OCF - Capex. 질문: "FCF > Capex"는 (OCF - Capex) > Capex 즉 OCF > 2*Capex 의미
-                    # 여기서는 문자 그대로 FCF(자체현금)가 투자금(Capex)보다 많은지, 즉 잉여현금이 넉넉한지 봅니다.
                     try:
                         fcf = info.get('freeCashflow', 0)
-                        # Capex는 Cashflow 표에서 보통 음수
                         capex = abs(cf.loc['Capital Expenditure'].iloc[0]) if 'Capital Expenditure' in cf.index else 0
                         pass_3 = fcf > capex
                         val_3 = f"FCF: {fcf/1e9:.1f}B / Capex: {capex/1e9:.1f}B"
@@ -258,18 +268,16 @@ with tab3:
 
                     # --- [4] Altman Z-Score (> 3.0) ---
                     try:
-                        # Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
                         total_assets = bs.loc['Total Assets'].iloc[0]
                         total_liab = bs.loc['Total Liabilities Net Minority Interest'].iloc[0]
-                        working_capital = bs.loc['Working Capital'].iloc[0] if 'Working Capital' in bs.index else (bs.loc['Total Assets'].iloc[0] - bs.loc['Total Liabilities Net Minority Interest'].iloc[0]) # 약식
+                        working_capital = bs.loc['Working Capital'].iloc[0] if 'Working Capital' in bs.index else (total_assets - total_liab)
                         retained_earnings = bs.loc['Retained Earnings'].iloc[0] if 'Retained Earnings' in bs.index else 0
-                        ebit_z = ebit
                         market_cap = info.get('marketCap', 0)
                         sales = is_stmt.loc['Total Revenue'].iloc[0]
 
                         A = working_capital / total_assets
                         B = retained_earnings / total_assets
-                        C = ebit_z / total_assets
+                        C = ebit / total_assets
                         D = market_cap / total_liab
                         E = sales / total_assets
 
@@ -277,57 +285,59 @@ with tab3:
                         pass_4 = z_score > 3.0
                     except: z_score, pass_4 = 0, False
 
-                    # --- [5] 고객 집중도 (< 20%) ---
-                    # API로 불가 -> 수동 확인
+                    # --- [5] 고객 집중도 ---
                     pass_5 = "Manual Check"
                     
-                    # --- [6] 자본 효율성 (ROIC > WACC) ---
-                    # WACC 자동 계산 어려움 -> ROIC 10% 이상인지로 대체
+                    # --- [6] 자본 효율성 (ROIC > 10%) ---
                     try:
-                        roic = info.get('returnOnEquity', 0) # ROE로 대체하거나 직접 계산 필요하나 API 한계로 ROE/ROA 참고
-                        # 정밀 ROIC 계산 시도
-                        tax_rate = is_stmt.loc['Tax Provision'].iloc[0] / is_stmt.loc['Pretax Income'].iloc[0] if 'Tax Provision' in is_stmt.index else 0.21
+                        tax_rate = 0.21
                         nopat = ebit * (1 - tax_rate)
-                        invested_capital = (total_debt + info.get('marketCap', 0)) - cash # 약식
+                        invested_capital = (total_debt + info.get('marketCap', 0)) - cash
                         roic_cal = (nopat / invested_capital) * 100 if invested_capital else 0
-                        pass_6 = roic_cal > 10.0 # WACC 대용 10%
+                        pass_6 = roic_cal > 10.0
                     except: roic_cal, pass_6 = 0, False
 
-                    # --- [7] 주주 친화성 (희석 없음) ---
-                    try:
-                        # 최근 3년 주식수 변화
-                        shares_now = cf.loc['Issuance Of Stock'].iloc[0] if 'Issuance Of Stock' in cf.index else 0
-                        # 주식 발행량이 크면 희석으로 간주 (단순화)
-                        # 더 정확히는 info['sharesOutstanding'] 과거 데이터가 필요한데 yfinance 무료로는 제한적
-                        # 대안: 주요 재무지표상 주식수 증가율 확인 불가시 -> 최근 유상증자 이슈 여부 수동 체크 권장
-                        pass_7 = "Manual Check" 
-                    except: pass_7 = "Check"
+                    # --- [7] 주주 친화성 ---
+                    pass_7 = "Manual Check"
 
-                    # --- [8] 밸류에이션 (PEG < 1.0) ---
+                    # --- [8] 밸류에이션 (PEG < 1.0) - 로직 강화 ---
                     try:
-                        peg = info.get('pegRatio', 99)
+                        # 1차 시도: info에서 가져오기
+                        peg = info.get('pegRatio', None)
+                        
+                        # 2차 시도: 직접 계산 (PER / Growth Rate)
+                        if peg is None:
+                            per = info.get('trailingPE', 0)
+                            # 성장률 추정 (내년 EPS / 올해 EPS)
+                            if 'forwardEps' in info and 'trailingEps' in info:
+                                growth = ((info['forwardEps'] - info['trailingEps']) / info['trailingEps']) * 100
+                                if growth > 0 and per > 0:
+                                    peg = per / growth
+                                else:
+                                    peg = 99 # 적자거나 역성장
+                            else:
+                                peg = 99
+                        
                         pass_8 = peg < 1.0
                     except: peg, pass_8 = 99, False
 
                     # ---------------- 결과 출력 ----------------
                     st.subheader(f"📊 {filter_ticker} 진단 결과")
                     
-                    # 결과 데이터프레임 생성
                     res_data = [
                         ["1. 부채 안정성", "Net Debt/EBITDA ≤ 2.5", f"{ratio_1:.2f}배", "✅ 통과" if pass_1 else "❌ 위험"],
                         ["2. 이자 감당 능력", "EBIT/Interest ≥ 5.0", f"{ratio_2:.1f}배", "✅ 통과" if pass_2 else "❌ 위험"],
                         ["3. 현금 창출력", "FCF > Capex", val_3, "✅ 통과" if pass_3 else "❌ 부족"],
                         ["4. 파산 저항성", "Altman Z-Score > 3.0", f"{z_score:.2f}", "✅ 안전" if pass_4 else "❌ 주의"],
-                        ["5. 고객 집중도", "단일 고객 < 20%", "확인 불가", "⚠️ 수동 확인 필요 (10-K)"],
+                        ["5. 고객 집중도", "단일 고객 < 20%", "확인 불가", "⚠️ 수동 확인 (10-K)"],
                         ["6. 자본 효율성", "ROIC > 10% (WACC)", f"{roic_cal:.1f}%", "✅ 우수" if pass_6 else "❌ 저조"],
-                        ["7. 주주 친화성", "희석 이력 없음", "API 한계", "⚠️ 수동 확인 필요"],
-                        ["8. 밸류에이션", "PEG < 1.0", f"{peg}", "✅ 저평가" if pass_8 else "❌ 고평가"]
+                        ["7. 주주 친화성", "희석 이력 없음", "API 한계", "⚠️ 수동 확인"],
+                        ["8. 밸류에이션", "PEG < 1.0", f"{peg:.2f}", "✅ 저평가" if pass_8 else "❌ 고평가"]
                     ]
                     
                     res_df = pd.DataFrame(res_data, columns=["필터 항목", "기준", "현재 수치", "판정"])
                     st.table(res_df)
                     
-                    # 종합 의견
                     success_cnt = sum([1 for x in [pass_1, pass_2, pass_3, pass_4, pass_6, pass_8] if x is True])
                     st.markdown(f"#### 💡 종합 점수: {success_cnt} / 6 (자동 진단 항목)")
                     
