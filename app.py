@@ -22,20 +22,25 @@ with tab1:
         'Core (핵심)': ['MSFT', 'GOOGL'],
         'Satellite (위성)': ['VRT', 'ETN']
     }
-    risk_tickers = {'VIX': '^VIX', '10Y Yield': '^TNX'}
-
+    
     # 2. 데이터 가져오기 함수 (개별 호출로 안정성 확보)
     @st.cache_data(ttl=60)
     def fetch_safe_data():
         summary_data = []
         vix_info = None
+        
+        # 진행 상황 표시용 (선택 사항)
+        status_text = st.empty()
 
-        # (1) 자산 데이터 수집
+        # (1) 자산 데이터 수집 (하나씩 순차적으로 시도)
         for cat, tickers in assets.items():
             for t in tickers:
                 try:
-                    # 최근 5일치 데이터 호출
-                    df = yf.Ticker(t).history(period="5d")
+                    status_text.text(f"데이터 수집 중: {t}...")
+                    # 최근 5일치 데이터 개별 호출
+                    ticker_obj = yf.Ticker(t)
+                    df = ticker_obj.history(period="5d")
+                    
                     if len(df) >= 2:
                         latest = df.iloc[-1]
                         prev = df.iloc[-2]
@@ -50,8 +55,13 @@ with tab1:
                             'Change (%)': pct_chg,
                             'Volume': latest['Volume']
                         })
+                    else:
+                        print(f"[Warning] {t}: 데이터 부족")
                 except Exception as e:
-                    continue # 에러난 종목은 패스
+                    print(f"[Error] {t}: {e}")
+                    continue # 에러난 종목은 패스하고 다음 종목 진행
+
+        status_text.empty() # 텍스트 제거
 
         # (2) VIX 데이터 수집 (별도 처리)
         try:
@@ -67,11 +77,8 @@ with tab1:
         return pd.DataFrame(summary_data), vix_info
 
     # 데이터 로딩 실행
-    try:
+    with st.spinner('시장 데이터를 안전하게 불러오는 중...'):
         df_summary, vix_data = fetch_safe_data()
-    except Exception as e:
-        st.error(f"데이터 수집 중 치명적 오류 발생: {e}")
-        st.stop()
 
     # 3. 화면 구성: Risk Monitor
     st.header("1. Risk Monitor")
@@ -90,10 +97,12 @@ with tab1:
     # 4. 화면 구성: Portfolio Status
     st.header("2. Portfolio Status")
     
+    # 데이터가 비어있지 않은지 확인
     if not df_summary.empty:
         col_chart, col_table = st.columns([1.5, 1])
         
         with col_chart:
+            # 차트 그리기
             fig = px.bar(df_summary, x='Ticker', y='Change (%)', color='Category', 
                          text='Change (%)', title="실시간 자산 변동률 (%)",
                          color_discrete_map={'Defense (방어)': '#2ecc71', 
@@ -103,4 +112,13 @@ with tab1:
             st.plotly_chart(fig, use_container_width=True)
         
         with col_table:
-            st.markdown
+            st.markdown("##### 📋 상세 시세표")
+            # 보기 좋게 포맷팅
+            display_df = df_summary[['Ticker', 'Price ($)', 'Change (%)', 'Volume']].copy()
+            
+            # 포맷팅 적용 (문자열 변환)
+            display_df['Price ($)'] = display_df['Price ($)'].apply(lambda x: f"{x:,.2f}")
+            display_df['Change (%)'] = display_df['Change (%)'].apply(lambda x: f"{x:+.2f}")
+            display_df['Volume'] = display_df['Volume'].apply(lambda x: f"{x:,.0f}")
+            
+            st.dataframe(display_df, hide
