@@ -76,4 +76,12 @@ with tab1:
 
     st.header("2. Portfolio Status")
     if not df_summary.empty:
-        col_chart, col_table = st.
+        # [수정된 부분] 79번 줄 오류 해결
+        col_chart, col_table = st.columns([1.5, 1])
+        
+        with col_chart:
+            fig = px.bar(df_summary, x='Ticker', y='Change (%)', color='Category', 
+                         text='Change (%)', title="실시간 자산 변동률 (%)",
+                         color_discrete_map={'Defense (방어)': '#2ecc71', 'Core (핵심)': '#3498db', 'Satellite (위성)': '#e74c3c'})
+            fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
+            st.plotly_chart(fig, use_
