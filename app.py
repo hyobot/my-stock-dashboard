@@ -19,7 +19,7 @@ with tab1:
         'Satellite (위성)': ['VRT', 'ETN']
     }
     
-    @st.cache_data(ttl=60)
+    @st.cache_data(ttl=3600)
     def fetch_data_safe():
         data_list = []
         vix_val, vix_chg = 0.0, 0.0
