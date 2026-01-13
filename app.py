@@ -1,10 +1,3 @@
-`SyntaxError: expected 'except' or 'finally' block` 오류는 `try:` 구문을 시작해놓고, 그에 짝이 되는 `except:` 구문이 없거나 들여쓰기(Indentation)가 어긋나서, 파이썬이 "에러 처리 구문이 어디 갔지?" 하고 묻는 상황입니다.
-
-코드가 길어지면서 복사 과정에서 **들여쓰기 줄맞춤이 깨진 것이 확실합니다.**
-
-이 문제를 해결하기 위해 **들여쓰기 구조를 단순화**하고, 에러가 발생할 여지를 최소화한 **최종 수정본**을 드립니다. `app.py`의 모든 내용을 지우고 아래 코드로 **새로 덮어쓰기** 하세요.
-
-```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -230,5 +223,3 @@ with tab2:
             st.error("⚠️ 적정 주가 0 이하 (계산 불가)")
         else:
             st.warning("👈 데이터를 가져오거나 현재 주가를 입력하세요.")
-
-```
