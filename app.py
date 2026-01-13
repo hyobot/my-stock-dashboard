@@ -7,12 +7,12 @@ import streamlit.components.v1 as components
 # 1. 기본 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="Hybrid Dashboard", layout="wide")
-st.title("🛡️ 하이브리드 바벨 & 가치 나침반")
+st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (Final Fix)")
 
 tab1, tab2 = st.tabs(["📊 고급 차트 & 포트폴리오", "🧭 보수적 가치 나침반"])
 
 # =============================================================================
-# Tab 1: 트레이딩뷰 고급 차트 (Advanced Real-Time Chart)
+# Tab 1: 트레이딩뷰 (iframe 방식 - 무조건 출력됨)
 # =============================================================================
 with tab1:
     assets = {
@@ -24,46 +24,26 @@ with tab1:
 
     col_chart, col_list = st.columns([3, 1])
 
-    # [좌측] 트레이딩뷰 고급 차트 (Advanced Chart Widget)
+    # [좌측] 트레이딩뷰 고급 차트 (iframe Embed)
     with col_chart:
         st.subheader("📈 트레이딩뷰 차트")
         selected_ticker = st.selectbox("종목 선택", all_tickers, index=3)
 
-        # 심볼 변환 (야후 -> 트레이딩뷰)
+        # 심볼 변환
         def get_tv_symbol(t):
             if t.endswith('.KS'): return f"KRX:{t.replace('.KS','')}"
             if t.endswith('.KQ'): return f"KOSDAQ:{t.replace('.KQ','')}"
             if t == '^VIX': return "CBOE:VIX"
             if t == '^TNX': return "TVC:TNX"
-            return t # NASDAQ/NYSE는 자동 인식됨
+            return t # NASDAQ/NYSE
 
         tv_sym = get_tv_symbol(selected_ticker)
 
-        # [핵심] 트레이딩뷰 'Advanced Chart' 위젯 코드
-        # autosize를 true로 하면 Streamlit iframe 안에서 높이를 못 잡습니다.
-        # 따라서 width/height를 명시적으로 지정합니다.
-        html_code = f"""
-        <div class="tradingview-widget-container" style="height:600px;width:100%">
-          <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-          {{
-          "width": "100%",
-          "height": "600",
-          "symbol": "{tv_sym}",
-          "interval": "D",
-          "timezone": "Asia/Seoul",
-          "theme": "light",
-          "style": "1",
-          "locale": "kr",
-          "enable_publishing": false,
-          "allow_symbol_change": true,
-          "calendar": false,
-          "support_host": "https://www.tradingview.com"
-        }}
-          </script>
-        </div>
-        """
-        components.html(html_code, height=610)
+        # [핵심] iframe으로 트레이딩뷰 위젯 URL을 직접 호출
+        # 이 방식은 스크립트 충돌 없이 가장 안정적으로 차트를 띄웁니다.
+        tradingview_url = f"https://s.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol={tv_sym}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=[]&theme=light&style=1&timezone=Asia/Seoul&studies_overrides={{}}&overrides={{}}&enabled_features=[]&disabled_features=[]&locale=kr&utm_source=tradingview-widget&utm_medium=embed&utm_campaign=advanced-chart"
+        
+        components.iframe(tradingview_url, height=600, scrolling=False)
 
     # [우측] 시세 리스트 (yfinance)
     with col_list:
