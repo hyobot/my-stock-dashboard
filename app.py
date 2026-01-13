@@ -24,28 +24,25 @@ with tab1:
 
     col_chart, col_list = st.columns([3, 1])
 
-    # [좌측] 트레이딩뷰 고급 차트 (iframe Embed)
+    # [좌측] 트레이딩뷰 고급 차트
     with col_chart:
         st.subheader("📈 트레이딩뷰 차트")
         selected_ticker = st.selectbox("종목 선택", all_tickers, index=3)
 
-        # 심볼 변환
         def get_tv_symbol(t):
             if t.endswith('.KS'): return f"KRX:{t.replace('.KS','')}"
             if t.endswith('.KQ'): return f"KOSDAQ:{t.replace('.KQ','')}"
             if t == '^VIX': return "CBOE:VIX"
             if t == '^TNX': return "TVC:TNX"
-            return t # NASDAQ/NYSE
+            return t 
 
         tv_sym = get_tv_symbol(selected_ticker)
 
-        # [핵심] iframe으로 트레이딩뷰 위젯 URL을 직접 호출
-        # 이 방식은 스크립트 충돌 없이 가장 안정적으로 차트를 띄웁니다.
+        # iframe 호출
         tradingview_url = f"https://s.tradingview.com/widgetembed/?frameElementId=tradingview_1&symbol={tv_sym}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=[]&theme=light&style=1&timezone=Asia/Seoul&studies_overrides={{}}&overrides={{}}&enabled_features=[]&disabled_features=[]&locale=kr&utm_source=tradingview-widget&utm_medium=embed&utm_campaign=advanced-chart"
-        
         components.iframe(tradingview_url, height=600, scrolling=False)
 
-    # [우측] 시세 리스트 (yfinance)
+    # [우측] 시세 리스트
     with col_list:
         st.subheader("📋 시세 요약")
         if st.button("새로고침"):
@@ -87,6 +84,7 @@ with tab2:
     
     c_input, c_calc = st.columns([1, 1.2])
 
+    # 1. 입력부
     with c_input:
         st.subheader("Step 0. 데이터 입력")
         t_col, b_col = st.columns([2,1])
@@ -143,11 +141,12 @@ with tab2:
         o1 = st.number_input("2년전 영업이익", value=d['o1'])
         o2 = st.number_input("1년전 영업이익", value=d['o2'])
         o3 = st.number_input("최근 영업이익", value=d['o3'])
-        one_off = st.number_input("일회성 비용 (+)", value=0.0)
+        one_off = st.number_input("일회성 비용 (+) [필수]", value=0.0)
         debt = st.number_input("총차입금", value=d['debt'])
         cash = st.number_input("현금성자산", value=d['cash'])
         shares = st.number_input("주식수 (주)", value=d['shares'], format="%.0f")
 
+    # 2. 판정부
     with c_calc:
         st.subheader("🏁 가치 판정 결과")
         
@@ -183,7 +182,15 @@ with tab2:
             elif margin > 0:
                 st.warning("⚠️ **[관망]** 저평가 상태이나 마진(30%) 부족")
             else:
-                st.error("⛔ **[진입 금지]** 적정가보다 비쌈")
+                # [핵심 수정] 하락 필요폭 계산 및 표시
+                over_pct = abs(margin) # 적정가 대비 비싼 비율
+                drop_needed = (curr_p_input - fair_price) / curr_p_input * 100 # 현재가에서 떨어져야 할 비율
+                
+                st.error(f"""
+                ⛔ **[진입 금지]** 적정가보다 **{over_pct:.1f}%** 비쌉니다.
+                
+                📉 즉, 현재 가격에서 약 **{drop_needed:.1f}% 하락**해야 기준 가격과 동일해집니다.
+                """)
         
         elif fair_price <= 0:
             st.error("⚠️ 적정 주가 0 이하 (계산 불가)")
