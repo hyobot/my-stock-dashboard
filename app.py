@@ -64,7 +64,7 @@ with tab1:
         st.error(f"초기화 오류: {e}")
         st.stop()
 
-    # 화면 구성
+    # 화면 구성: Risk Monitor
     st.header("1. Risk Monitor")
     c1, c2 = st.columns(2)
     v_val, v_chg = vix_data
@@ -74,9 +74,9 @@ with tab1:
 
     st.divider()
 
+    # 화면 구성: Portfolio Status
     st.header("2. Portfolio Status")
     if not df_summary.empty:
-        # [수정된 부분] 79번 줄 오류 해결
         col_chart, col_table = st.columns([1.5, 1])
         
         with col_chart:
@@ -84,4 +84,41 @@ with tab1:
                          text='Change (%)', title="실시간 자산 변동률 (%)",
                          color_discrete_map={'Defense (방어)': '#2ecc71', 'Core (핵심)': '#3498db', 'Satellite (위성)': '#e74c3c'})
             fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
-            st.plotly_chart(fig, use_
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col_table:
+            st.markdown("##### 📋 상세 시세표")
+            display_df = df_summary[['Ticker', 'Price ($)', 'Change (%)', 'Volume']].copy()
+            display_df['Price ($)'] = display_df['Price ($)'].apply(lambda x: f"{x:,.2f}")
+            display_df['Change (%)'] = display_df['Change (%)'].apply(lambda x: f"{x:+.2f}")
+            display_df['Volume'] = display_df['Volume'].apply(lambda x: f"{x:,.0f}")
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
+    else:
+        st.error("데이터를 불러오지 못했습니다. 잠시 후 새로고침 해주세요.")
+
+# =============================================================================
+# [Tab 2] 보수적 가치 나침반
+# =============================================================================
+with tab2:
+    st.markdown("> **\"숫자로 기다리는 인간이 되어라.\"** (단위와 예외 항목 검증 필수)")
+    
+    col_input, col_result = st.columns([1, 1.2])
+
+    with col_input:
+        st.subheader("Step 0. 기초 데이터 입력")
+        c_tick, c_btn = st.columns([2, 1])
+        target_ticker = c_tick.text_input("종목 티커", value="005930.KS")
+        
+        # 세션 초기화
+        if 'f_data' not in st.session_state:
+            st.session_state.f_data = {
+                'oi_1': 0.0, 'oi_2': 0.0, 'oi_3': 0.0,
+                'debt': 0.0, 'cash': 0.0, 'shares': 0.0,
+                'currency': 'KRW'
+            }
+
+        # [버튼 로직] 데이터 자동 수집
+        if c_btn.button("📥 데이터 가져오기"):
+            try:
+                with st.spinner(f"{target_ticker} 분석 중..."):
+                    stock =
