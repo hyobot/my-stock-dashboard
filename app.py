@@ -1,22 +1,20 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import streamlit.components.v1 as components # 트레이딩뷰 위젯용
+import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
 # 1. 기본 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="Hybrid Dashboard", layout="wide")
-st.title("🛡️ 하이브리드 바벨 & 가치 나침반 (Final Fix)")
+st.title("🛡️ 하이브리드 바벨 & 가치 나침반")
 
-# 탭 구성
-tab1, tab2 = st.tabs(["📊 차트 & 포트폴리오", "🧭 보수적 가치 나침반"])
+tab1, tab2 = st.tabs(["📊 고급 차트 & 포트폴리오", "🧭 보수적 가치 나침반"])
 
 # =============================================================================
-# Tab 1: 트레이딩뷰 (높이 고정으로 해결)
+# Tab 1: 트레이딩뷰 고급 차트 (Advanced Real-Time Chart)
 # =============================================================================
 with tab1:
-    # 1. 자산 목록
     assets = {
         'Defense': ['COST', 'WM', 'XLV'],
         'Core': ['MSFT', 'GOOGL'],
@@ -26,53 +24,51 @@ with tab1:
 
     col_chart, col_list = st.columns([3, 1])
 
-    # [좌측] 트레이딩뷰 차트
+    # [좌측] 트레이딩뷰 고급 차트 (Advanced Chart Widget)
     with col_chart:
-        st.subheader("📈 실시간 차트 (TradingView)")
-        selected_ticker = st.selectbox("종목 선택", all_tickers, index=3) # MSFT 기본
+        st.subheader("📈 트레이딩뷰 차트")
+        selected_ticker = st.selectbox("종목 선택", all_tickers, index=3)
 
-        # 트레이딩뷰용 심볼 변환 함수
+        # 심볼 변환 (야후 -> 트레이딩뷰)
         def get_tv_symbol(t):
             if t.endswith('.KS'): return f"KRX:{t.replace('.KS','')}"
             if t.endswith('.KQ'): return f"KOSDAQ:{t.replace('.KQ','')}"
             if t == '^VIX': return "CBOE:VIX"
             if t == '^TNX': return "TVC:TNX"
-            return t # 미국주식
+            return t # NASDAQ/NYSE는 자동 인식됨
 
         tv_sym = get_tv_symbol(selected_ticker)
 
-        # [핵심 수정] height를 픽셀 단위로 강제 지정
+        # [핵심] 트레이딩뷰 'Advanced Chart' 위젯 코드
+        # autosize를 true로 하면 Streamlit iframe 안에서 높이를 못 잡습니다.
+        # 따라서 width/height를 명시적으로 지정합니다.
         html_code = f"""
-        <div class="tradingview-widget-container" style="height:600px; width:100%">
-          <div id="tradingview_chart" style="height:calc(100% - 32px); width:100%"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-          <script type="text/javascript">
-          new TradingView.widget(
+        <div class="tradingview-widget-container" style="height:600px;width:100%">
+          <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
           {{
-            "autosize": false,
-            "width": "100%",
-            "height": "600",
-            "symbol": "{tv_sym}",
-            "interval": "D",
-            "timezone": "Asia/Seoul",
-            "theme": "light",
-            "style": "1",
-            "locale": "kr",
-            "toolbar_bg": "#f1f3f6",
-            "enable_publishing": false,
-            "allow_symbol_change": true,
-            "container_id": "tradingview_chart"
-          }});
+          "width": "100%",
+          "height": "600",
+          "symbol": "{tv_sym}",
+          "interval": "D",
+          "timezone": "Asia/Seoul",
+          "theme": "light",
+          "style": "1",
+          "locale": "kr",
+          "enable_publishing": false,
+          "allow_symbol_change": true,
+          "calendar": false,
+          "support_host": "https://www.tradingview.com"
+        }}
           </script>
         </div>
         """
-        # 여기서 height를 넉넉하게 주어야 화면에 보입니다. (610px)
         components.html(html_code, height=610)
 
-    # [우측] 포트폴리오 시세 (간략화)
+    # [우측] 시세 리스트 (yfinance)
     with col_list:
         st.subheader("📋 시세 요약")
-        if st.button("시세 새로고침"):
+        if st.button("새로고침"):
             st.cache_data.clear()
 
         @st.cache_data(ttl=3600)
@@ -101,32 +97,27 @@ with tab1:
             else:
                 st.info("데이터 로딩 중...")
         except:
-            st.error("시세 로드 실패 (API 제한)")
+            st.error("시세 로드 실패")
 
 # =============================================================================
-# Tab 2: 가치 나침반 (판정 기능 수리)
+# Tab 2: 가치 나침반
 # =============================================================================
 with tab2:
     st.markdown("> **\"숫자로 기다리는 인간이 되어라.\"**")
     
     c_input, c_calc = st.columns([1, 1.2])
 
-    # ---------------------------------------------------------
-    # 1. 입력부
-    # ---------------------------------------------------------
     with c_input:
         st.subheader("Step 0. 데이터 입력")
         t_col, b_col = st.columns([2,1])
         target = t_col.text_input("티커 입력", value="005930.KS")
         
-        # 세션 초기화
         if 'val_data' not in st.session_state:
             st.session_state.val_data = {
                 'o1':0.0, 'o2':0.0, 'o3':0.0, 
                 'debt':0.0, 'cash':0.0, 'shares':0.0, 'curr_p':0.0, 'cur':'KRW'
             }
 
-        # 데이터 가져오기 버튼
         if b_col.button("📥 데이터 가져오기"):
             try:
                 with st.spinner("로딩 중..."):
@@ -135,10 +126,8 @@ with tab2:
                     cur = info.get('currency', 'KRW')
                     div = 100000000 if cur == 'KRW' else 1000000
                     
-                    # 1. 손익
                     fs = tk.financials
                     if fs is not None and not fs.empty:
-                         # 'Operating Income' 유사어 찾기
                         row = next((i for i in fs.index if 'Operating' in str(i) and ('Income' in str(i) or 'Profit' in str(i))), None)
                         if row:
                             vals = fs.loc[row].values[:3]
@@ -146,19 +135,15 @@ with tab2:
                             if len(vals)>1: st.session_state.val_data['o2'] = float(vals[1]/div)
                             if len(vals)>2: st.session_state.val_data['o1'] = float(vals[2]/div)
                     
-                    # 2. 대차대조표
                     bs = tk.balance_sheet
                     if bs is not None and not bs.empty:
                         d_row = next((i for i in bs.index if 'Total Debt' in str(i)), None)
                         if d_row: st.session_state.val_data['debt'] = float(bs.loc[d_row].iloc[0]/div)
-                        
                         c_row = next((i for i in bs.index if 'Cash' in str(i) and 'Equivalents' in str(i)), None)
                         if c_row: st.session_state.val_data['cash'] = float(bs.loc[c_row].iloc[0]/div)
                     
-                    # 3. 주식수 & 현재가
                     st.session_state.val_data['shares'] = float(info.get('sharesOutstanding', 0))
                     
-                    # 현재가 시도 (실패해도 괜찮음)
                     try:
                         hist = tk.history(period='1d')
                         if not hist.empty:
@@ -171,7 +156,6 @@ with tab2:
             except Exception as e:
                 st.error(f"로드 실패: {e}")
 
-        # 사용자 입력 UI (세션 데이터 연동)
         d = st.session_state.val_data
         unit = "억 원" if d['cur'] == 'KRW' else "백만 달러"
         
@@ -179,18 +163,14 @@ with tab2:
         o1 = st.number_input("2년전 영업이익", value=d['o1'])
         o2 = st.number_input("1년전 영업이익", value=d['o2'])
         o3 = st.number_input("최근 영업이익", value=d['o3'])
-        one_off = st.number_input("일회성 비용 (+) [필수]", value=0.0)
+        one_off = st.number_input("일회성 비용 (+)", value=0.0)
         debt = st.number_input("총차입금", value=d['debt'])
         cash = st.number_input("현금성자산", value=d['cash'])
         shares = st.number_input("주식수 (주)", value=d['shares'], format="%.0f")
 
-    # ---------------------------------------------------------
-    # 2. 계산 및 판정부 (분리하여 항상 작동하게 함)
-    # ---------------------------------------------------------
     with c_calc:
         st.subheader("🏁 가치 판정 결과")
         
-        # [Step 1~4] 적정주가 계산 (항상 실행)
         worst_oi = min(o1, o2, o3)
         norm_oi = worst_oi + one_off
         multiple = st.slider("적용 멀티플 (보수적 5~6)", 3, 10, 5)
@@ -199,11 +179,9 @@ with tab2:
         net_debt = debt - cash
         eq_val = ev - net_debt
         
-        # 주당 가치 환산
         u_mul = 100000000 if d['cur']=='KRW' else 1000000
         fair_price = (eq_val * u_mul) / shares if shares > 0 else 0
         
-        # 중간 결과 보여주기
         st.markdown(f"""
         1. **정상화 이익:** {norm_oi:,.0f} (최악 {worst_oi:,.0f} + 조정 {one_off})
         2. **기업가치 (EV):** {ev:,.0f}
@@ -213,14 +191,10 @@ with tab2:
         st.divider()
         st.markdown(f"### 👑 보수적 적정가: **{fair_price:,.0f}**")
         
-        # [Step 5] 현재가 비교 및 판정
-        st.write("") # 여백
-        # 현재가 입력창 (자동으로 채워지거나, 0이면 유저가 입력)
         curr_p_input = st.number_input("현재 주가 입력 (비교용)", value=d['curr_p'])
         
         if curr_p_input > 0 and fair_price > 0:
             margin = (fair_price - curr_p_input) / fair_price * 100
-            
             st.metric("현재 안전마진", f"{margin:.1f}%")
             
             if margin > 30:
@@ -232,6 +206,6 @@ with tab2:
                 st.error("⛔ **[진입 금지]** 적정가보다 비쌈")
         
         elif fair_price <= 0:
-            st.error("⚠️ 계산된 적정 주가가 0 이하입니다. (부채 과다 혹은 적자)")
+            st.error("⚠️ 적정 주가 0 이하 (계산 불가)")
         else:
-            st.warning("👈 **왼쪽에서 데이터를 불러오거나, 위 칸에 '현재 주가'를 직접 입력하세요.**")
+            st.warning("👈 데이터를 가져오거나 현재 주가를 입력하세요.")
