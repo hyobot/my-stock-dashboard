@@ -121,18 +121,17 @@ with tab1:
             display_df['Change (%)'] = display_df['Change (%)'].apply(lambda x: f"{x:+.2f}")
             display_df['Volume'] = display_df['Volume'].apply(lambda x: f"{x:,.0f}")
             
-            # [수정된 부분] 줄바꿈 문제 방지를 위해 인자를 나누어 작성
+            # 테이블 출력
             st.dataframe(
                 display_df, 
                 hide_index=True, 
                 use_container_width=True
             )
     else:
-        # 데이터가 하나도 없을 때 에러 메시지 표시
         st.error("❌ 데이터를 불러오지 못했습니다. 잠시 후 새로고침(F5) 해주세요.")
 
 # =============================================================================
-# [Tab 2] 보수적 가치 나침반 (에러 방지 & 자동 수집)
+# [Tab 2] 보수적 가치 나침반 (Logic Fix)
 # =============================================================================
 with tab2:
     st.markdown("""
@@ -169,7 +168,7 @@ with tab2:
                     # 1) 손익계산서
                     fins = stock.financials
                     if fins is not None and not fins.empty:
-                        # Operating Income 찾기 (여러 이름 대응)
+                        # Operating Income 찾기
                         oi_row = None
                         for idx in fins.index:
                             if 'Operating' in str(idx) and ('Income' in str(idx) or 'Profit' in str(idx)):
@@ -178,4 +177,10 @@ with tab2:
                         
                         if oi_row:
                             vals = fins.loc[oi_row].values[:3]
+                            # [수정] 들여쓰기 오류 방지를 위해 명확하게 블록 구분
                             if len(vals) >= 1:
+                                st.session_state.f_data['oi_3'] = float(vals[0] / unit_div)
+                            if len(vals) >= 2:
+                                st.session_state.f_data['oi_2'] = float(vals[1] / unit_div)
+                            if len(vals) >= 3:
+                                st.session_state
